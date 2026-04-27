@@ -27,7 +27,10 @@ python3 ca_setup.py
 
 This writes keys/certs under `certs/`.
 
+Note: private keys are generated locally and are **ignored by git** (see `.gitignore`).
+
 ## Register a user (setup phase)
+Note: `data/users.json` is a **local artifact** and is **ignored by git** (see `.gitignore`).
 
 This is required by the PDF: password registration happens **before** the handshake.
 
