@@ -1,0 +1,6 @@
+{
+  "issuer": "local_ca",
+  "public_key": "mrdu4Z2gFH8hmtvVe3axC7duA0CY6HjITX2hXri2eLk=",
+  "signature": "kVwL5k8OWmmsS6SdCIGzUj96z2s+cb4IOSveTQUZUYwZRlHVDb1Qw9JeTi7hMK5V9loyEuEM2ykoDYh5mT5hAw==",
+  "subject": "server"
+}

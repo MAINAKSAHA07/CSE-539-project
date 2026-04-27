@@ -1,12 +1,13 @@
-# CSE 539 Project — TLS-like Handshake with PAKE (Baseline)
+# CSE 539 Project — TLS Handshake with PAKE (Working)
 
-This repo implements a minimal, runnable baseline for the course project:
+This repo implements a runnable protocol for the course project:
 
 - Two processes (`client.py`, `server.py`) communicating over `127.0.0.1` sockets.
 - A simple CA and server certificate stored as files.
 - Server handshake messages are signed; client verifies certificate and handshake transcript signature.
-
-PAKE + HKDF + AEAD are scaffolded as modules and will be layered next.
+- Client authenticates to the server using a password-based PAKE-style exchange (setup registration + online proofs).
+- Session keys are derived using HKDF (TLS 1.3-style “traffic secrets” concept).
+- Post-handshake application data is protected with AEAD (AES-GCM).
 
 ## Setup
 
@@ -26,7 +27,21 @@ python3 ca_setup.py
 
 This writes keys/certs under `certs/`.
 
-## Run the handshake baseline
+## Register a user (setup phase)
+
+This is required by the PDF: password registration happens **before** the handshake.
+
+```bash
+python3 register_user.py
+```
+
+Defaults are `USERNAME=alice` and `PASSWORD="correct horse battery staple"`. You can override:
+
+```bash
+USERNAME=alice PASSWORD="mypassword" python3 register_user.py
+```
+
+## Run the full handshake + secure channel
 
 Terminal 1:
 
@@ -42,9 +57,21 @@ python3 client.py
 
 Expected behavior:
 
-- Client connects, sends `client_hello`.
-- Server responds with `server_hello`, its certificate, and a signature over the handshake transcript.
-- Client verifies (1) CA signature on certificate, then (2) server signature on the handshake transcript.
+- Client verifies **server certificate** (CA-signed) and **server handshake signature**.
+- Client and server run a **password-authenticated key exchange** and mutually verify password proofs.
+- Both derive the same session keys via **HKDF**.
+- Client sends one **AES-GCM encrypted** message; server decrypts and replies encrypted; client decrypts.
+
+## Failure cases to demo (for report)
+
+- Wrong password:
+
+```bash
+USERNAME=alice PASSWORD="wrong" python3 client.py
+```
+
+- No user registered:
+  - Delete `data/users.json` and rerun `python3 server.py` then `python3 client.py` to see failure.
 
 ## Project structure
 
@@ -53,7 +80,7 @@ Expected behavior:
 ├── client.py
 ├── server.py
 ├── ca_setup.py
-├── register_user.py            # (PAKE setup phase placeholder for now)
+├── register_user.py
 ├── crypto_utils/
 │   ├── utils.py
 │   ├── framing.py
