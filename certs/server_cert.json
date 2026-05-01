@@ -1,6 +1,6 @@
 {
   "issuer": "local_ca",
-  "public_key": "9YJ+pcEHKVb2rLSqr2vOWC6mom3cS5fY8HyN8JISUIM=",
-  "signature": "k7JQlG46b9/cqTgfO0ixCl0+z4rjBV6F0FT6O/ofMafDNCW63FKhhfXS+HL/F3vk7I0sibpHlruaR5+u/sTUCg==",
+  "public_key": "DL35eeAN3cPRxt+kfdceGTSXiA/LohdxpD6Zam6kJUo=",
+  "signature": "2RDKWoOu8DKcehCitUEELgnb47VQ60kxr+tI+Ek6AdYylKNgP4ACvUfck1O+UAtrVYp/sdOIWDBLzrleCxtRBg==",
   "subject": "server"
 }
