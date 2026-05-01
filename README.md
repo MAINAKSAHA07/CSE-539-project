@@ -72,13 +72,29 @@ chmod +x demo.sh
 
 ## Failure cases (for report / TA)
 
-- Wrong password:
+- Wrong password (expect a clear client exit, non-zero status):
 
 ```bash
 USERNAME=alice PASSWORD="wrong" python3 client.py
 ```
 
 - No user registered: delete `data/users.json` and connect with `client.py`.
+
+- **AEAD / integrity (optional):** after a successful handshake, corrupt the client’s ciphertext to show the server rejects bad application data:
+
+```bash
+CLIENT_CORRUPT_AEAD=1 python3 client.py
+```
+
+- **Invalid certificate / signature:** use a mismatched `certs/ca_pk.bin` (e.g. from another `ca_setup.py` run) while the server still presents `server_cert.json` from a different CA — the client should fail CA verification or transcript signature with an explicit message.
+
+## Pre-submission checklist (PDF + Canvas)
+
+- [ ] Clean checkout: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+- [ ] `python3 ca_setup.py` then `python3 register_user.py` then run `server.py` + `client.py` (or `./demo.sh`)
+- [ ] `requirements.txt` lists all dependencies (including PyNaCl)
+- [ ] Add **report** under `report/` (architecture, security intuition, implementation) and include **`project.pdf`** if your instructor expects it
+- [ ] Zip **one folder** with code + report for Canvas
 
 ## Project structure
 
