@@ -1,3 +1,5 @@
+"""Small helpers: base64 wire encoding and canonical JSON for transcripts/signatures."""
+
 from __future__ import annotations
 
 import base64

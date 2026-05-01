@@ -1,3 +1,5 @@
+"""Ed25519 sign/verify and raw key encode/decode helpers."""
+
 from __future__ import annotations
 
 from cryptography.hazmat.primitives import serialization

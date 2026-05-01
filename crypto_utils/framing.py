@@ -1,3 +1,5 @@
+"""Length-prefixed JSON messages over TCP (simple record layer for the project)."""
+
 from __future__ import annotations
 
 import json

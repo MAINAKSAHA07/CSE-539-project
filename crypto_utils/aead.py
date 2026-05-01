@@ -1,3 +1,5 @@
+"""AES-GCM authenticated encryption for post-handshake application data."""
+
 from __future__ import annotations
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM

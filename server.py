@@ -1,14 +1,28 @@
+"""
+TLS-like server: certificate + signed transcript, then OPRF + PAKE + HKDF + AEAD.
+
+Phases (see PDF): PKI-backed server auth, password-based client auth via OPRF/PAKE,
+traffic secrets via HKDF, application data via AES-GCM.
+"""
+
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import socket
 from pathlib import Path
 from typing import Any, Dict
 
+from crypto_utils.aead import aesgcm_decrypt, aesgcm_encrypt
 from crypto_utils.certs import load_cert
 from crypto_utils.framing import ProtocolError, recv_msg, send_msg
-from crypto_utils.hkdf import hkdf_extract_and_expand
+from crypto_utils.hkdf import (
+    derive_aead_material_from_application_traffic_secret,
+    derive_application_traffic_secret,
+    derive_handshake_traffic_secret,
+)
+from crypto_utils.oprf import oprf_evaluate_safe
 from crypto_utils.pake import (
     client_proof,
     compute_shared_secret,
@@ -16,10 +30,8 @@ from crypto_utils.pake import (
     server_proof,
     transcript_hash,
 )
-from crypto_utils.aead import aesgcm_decrypt, aesgcm_encrypt
-from crypto_utils.utils import b64d
 from crypto_utils.signatures import decode_private_key, sign_ed25519
-from crypto_utils.utils import b64e, canonical_json
+from crypto_utils.utils import b64d, b64e, canonical_json
 
 
 HOST = os.environ.get("HOST", "127.0.0.1")
@@ -34,6 +46,7 @@ USERS_PATH = BASE_DIR / "data" / "users.json"
 
 def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
     try:
+        # --- Phase 1: ClientHello ---
         msg = recv_msg(conn)
         if msg.get("type") != "client_hello":
             raise ProtocolError("expected client_hello")
@@ -45,14 +58,13 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
         server_nonce = secrets.token_hex(16)
         server_hello: Dict[str, Any] = {"type": "server_hello", "server_nonce": server_nonce}
 
-        # Load long-term materials.
+        # --- Phase 2: Server certificate + transcript signature (TLS-ish server auth) ---
         if not SERVER_SK_PATH.exists() or not SERVER_CERT_PATH.exists():
             raise ProtocolError("missing certs; run `python3 ca_setup.py` first")
 
         server_sk = decode_private_key(SERVER_SK_PATH.read_bytes())
         cert = load_cert(str(SERVER_CERT_PATH))
 
-        # Sign a simple transcript = canonical_json([client_hello, server_hello, cert_dict]).
         transcript_obj = [msg, server_hello, {"type": "certificate", "cert": cert.to_dict()}]
         transcript = canonical_json(transcript_obj)
         sig = sign_ed25519(server_sk, transcript)
@@ -61,29 +73,38 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
         send_msg(conn, {"type": "certificate", "cert": cert.to_dict()})
         send_msg(conn, {"type": "handshake_signature", "sig": b64e(sig)})
 
-        # --- PAKE-style password authentication + key exchange (replaces DH) ---
-        # Setup record required before handshake:
+        # --- Phase 3: OPRF (OPAQUE-style password hardening; server does not see password) ---
         if not USERS_PATH.exists():
             raise ProtocolError("no users registered; run `python3 register_user.py` first")
 
-        import json as _json
-
-        users = _json.loads(USERS_PATH.read_text(encoding="utf-8"))
+        users = json.loads(USERS_PATH.read_text(encoding="utf-8"))
         if username not in users:
             raise ProtocolError("unknown user")
 
-        salt = b64d(users[username]["salt"])
-        pw_key = b64d(users[username]["pw_key"])
+        record = users[username]
+        if "oprf_sk" not in record or "pw_key" not in record:
+            raise ProtocolError("user record missing OPRF fields; re-run register_user.py")
 
-        # Server sends its ephemeral key + the user's salt.
+        oprf_sk = b64d(record["oprf_sk"])
+        pw_key = b64d(record["pw_key"])
+
+        oprf_blind_msg = recv_msg(conn)
+        if oprf_blind_msg.get("type") != "oprf_blind":
+            raise ProtocolError("expected oprf_blind")
+        blind = b64d(str(oprf_blind_msg.get("blind", "")))
+        try:
+            evaluated = oprf_evaluate_safe(oprf_sk, blind)
+        except ValueError as e:
+            raise ProtocolError(str(e)) from e
+        send_msg(conn, {"type": "oprf_eval", "evaluated": b64e(evaluated)})
+
+        # --- Phase 4: PAKE (X25519 + mutual HMAC proofs) ---
         server_state, server_eph_pk_raw = server_pake_start()
         send_msg(
             conn,
             {
                 "type": "pake_server_1",
                 "server_eph": b64e(server_eph_pk_raw),
-                "salt": b64e(salt),
-                "hint": "send username + client_eph + client_proof",
             },
         )
 
@@ -97,7 +118,6 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
         client_eph_raw = b64d(str(client_pake.get("client_eph", "")))
         client_proof_b = b64d(str(client_pake.get("client_proof", "")))
 
-        # Build transcript hash binding PAKE to the signed handshake.
         th = transcript_hash(transcript)
 
         expected_client_proof = client_proof(pw_key, th, client_eph_raw, server_eph_pk_raw)
@@ -105,24 +125,23 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
             raise ProtocolError("bad password proof")
 
         srv_proof = server_proof(pw_key, th, client_eph_raw, server_eph_pk_raw)
-        send_msg(conn, {"type": "pake_server_2", "salt": b64e(salt), "server_proof": b64e(srv_proof)})
+        send_msg(conn, {"type": "pake_server_2", "server_proof": b64e(srv_proof)})
 
-        # Shared secret from X25519 + bind password key.
+        # --- Phase 5: TLS 1.3–style HKDF: handshake traffic secret → application traffic secret ---
         dh = compute_shared_secret(server_state.server_eph_sk, client_eph_raw)
         ikm = dh + pw_key
-        master = hkdf_extract_and_expand(ikm, salt=th, info=b"cse539 master", length=32)
+        handshake_traffic_secret = derive_handshake_traffic_secret(ikm, th)
+        application_traffic_secret = derive_application_traffic_secret(handshake_traffic_secret, th)
+        client_key, server_key, client_nonce, server_nonce = derive_aead_material_from_application_traffic_secret(
+            application_traffic_secret
+        )
 
-        client_key = hkdf_extract_and_expand(master, salt=b"app", info=b"client_key", length=32)
-        server_key = hkdf_extract_and_expand(master, salt=b"app", info=b"server_key", length=32)
-        client_nonce = hkdf_extract_and_expand(master, salt=b"app", info=b"client_nonce", length=12)
-        server_nonce = hkdf_extract_and_expand(master, salt=b"app", info=b"server_nonce", length=12)
-
-        # AEAD-protected post-handshake exchange.
+        # --- Phase 6: AEAD application messages ---
         enc = recv_msg(conn)
         if enc.get("type") != "app_data":
             raise ProtocolError("expected app_data")
 
-        aad = transcript  # bind record layer to handshake transcript
+        aad = transcript
         ct = b64d(str(enc.get("ciphertext", "")))
         try:
             pt = aesgcm_decrypt(client_key, client_nonce, ct, aad)
@@ -152,4 +171,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

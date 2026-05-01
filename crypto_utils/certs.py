@@ -1,3 +1,5 @@
+"""Minimal JSON certificates signed by a local CA (Ed25519)."""
+
 from __future__ import annotations
 
 import json

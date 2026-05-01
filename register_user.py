@@ -1,10 +1,26 @@
+"""
+Setup-phase user registration (before any handshake).
+
+Runs the OPRF steps locally (client + server roles in one process) to produce:
+- ``oprf_sk``: server-held OPRF key (per user)
+- ``pw_key``: symmetric key material derived from the OPRF output (used in PAKE proofs)
+
+The raw password is not stored.
+"""
+
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
 
-from crypto_utils.passwords import derive_password_key, new_salt
+from crypto_utils.oprf import (
+    oprf_blind,
+    oprf_evaluate,
+    oprf_finalize,
+    pw_key_from_oprf_output,
+    random_server_oprf_scalar,
+)
 from crypto_utils.utils import b64e
 
 
@@ -14,11 +30,6 @@ USERS_PATH = DATA_DIR / "users.json"
 
 
 def main() -> None:
-    """
-    Setup-phase registration (before handshake), as required by the PDF.
-
-    Stores a per-user salt and a password-derived key (no raw password stored).
-    """
     username = os.environ.get("USERNAME", "alice")
     password = os.environ.get("PASSWORD", "correct horse battery staple")
 
@@ -28,14 +39,16 @@ def main() -> None:
     if USERS_PATH.exists():
         users = json.loads(USERS_PATH.read_text(encoding="utf-8"))
 
-    salt = new_salt()
-    pw_key = derive_password_key(password, salt)
+    oprf_sk = random_server_oprf_scalar()
+    blinded, st = oprf_blind(password)
+    evaluated = oprf_evaluate(oprf_sk, blinded)
+    oprf_out = oprf_finalize(st, evaluated)
+    pw_key = pw_key_from_oprf_output(oprf_out)
 
-    users[username] = {"salt": b64e(salt), "pw_key": b64e(pw_key)}
+    users[username] = {"oprf_sk": b64e(oprf_sk), "pw_key": b64e(pw_key)}
     USERS_PATH.write_text(json.dumps(users, sort_keys=True, indent=2), encoding="utf-8")
-    print(f"[register_user] registered {username} in data/users.json")
+    print(f"[register_user] registered {username} (OPRF + pw_key) in data/users.json")
 
 
 if __name__ == "__main__":
     main()
-

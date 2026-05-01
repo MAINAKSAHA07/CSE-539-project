@@ -1,3 +1,5 @@
+"""Offline PKI setup: generate CA + server long-term signing keys and a CA-signed certificate."""
+
 from __future__ import annotations
 
 import os
