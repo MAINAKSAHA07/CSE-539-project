@@ -1,6 +1,8 @@
 # CSE 539 Project — TLS Handshake with PAKE (Working)
 
-This repo implements a runnable protocol for the course project:
+This repo implements a **TLS-like**, **OPAQUE-flavored** protocol for the course project — not a
+full standards-compliant TLS 1.3 or full RFC OPAQUE implementation (see `CSE539.pdf` / your report
+for scope and simplifications). Concretely it includes:
 
 - Two processes (`client.py`, `server.py`) communicating over `127.0.0.1` sockets.
 - A simple CA and server certificate stored as files.
@@ -24,6 +26,15 @@ python3 ca_setup.py
 ```
 
 This writes keys/certs under `certs/`. Private signing keys are **not** committed (see `.gitignore`).
+
+If you set a custom CA name, use the same name when verifying on the client:
+
+```bash
+CA_NAME=my_ca python3 ca_setup.py
+EXPECTED_CERT_ISSUER=my_ca python3 client.py
+```
+
+Default issuer in the certificate is `local_ca` (matches default `ca_setup.py`).
 
 ## Register a user (setup phase)
 

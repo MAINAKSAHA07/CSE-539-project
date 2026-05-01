@@ -41,6 +41,14 @@ CERTS_DIR = BASE_DIR / "certs"
 CA_PK_PATH = CERTS_DIR / "ca_pk.bin"
 
 
+def _expected_cert_issuer() -> str | None:
+    """Must match ``CA_NAME`` used when running ``ca_setup.py`` (default ``local_ca``)."""
+    raw = os.environ.get("EXPECTED_CERT_ISSUER", "local_ca")
+    if raw.strip().lower() in ("", "any", "skip"):
+        return None
+    return raw
+
+
 def _friendly_server_error(detail: str) -> None:
     """Turn server ProtocolError text into a short, grader-friendly client exit message."""
     d = (detail or "").strip()
@@ -108,7 +116,11 @@ def main() -> None:
 
             cert = Certificate.from_dict(cert_msg["cert"])
             try:
-                server_pk = verify_certificate(ca_pk, cert)
+                server_pk = verify_certificate(
+                    ca_pk, cert, expected_subject="server", expected_issuer=_expected_cert_issuer()
+                )
+            except ValueError as e:
+                raise SystemExit(f"[client] handshake failed: {e}") from e
             except InvalidSignature:
                 raise SystemExit(
                     "[client] handshake failed: invalid server certificate (CA signature verification failed)"
@@ -171,6 +183,8 @@ def main() -> None:
             )
 
             # --- Phase 6: AEAD application data (post-handshake only) ---
+            # One protected message per direction in this demo: derived AES-GCM nonces are not
+            # advanced; sending multiple records per session would require nonce/sequence handling.
             aad = transcript
             pt = b"hello secure server"
             ct = aesgcm_encrypt(client_key, client_nonce_aead, pt, aad)

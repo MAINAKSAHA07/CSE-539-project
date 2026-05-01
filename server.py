@@ -136,7 +136,9 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
             application_traffic_secret
         )
 
-        # --- Phase 6: AEAD application messages ---
+        # --- Phase 6: AEAD application messages (post-handshake only) ---
+        # Demo scope: one AES-GCM record per direction; fixed derived nonce — do not reuse for
+        # multiple messages without a per-record nonce or counter (see report).
         enc = recv_msg(conn)
         if enc.get("type") != "app_data":
             raise ProtocolError("expected app_data")

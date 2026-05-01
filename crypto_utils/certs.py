@@ -69,7 +69,28 @@ def issue_certificate(ca_sk: Ed25519PrivateKey, *, subject: str, subject_pk: Ed2
     )
 
 
-def verify_certificate(ca_pk: Ed25519PublicKey, cert: Certificate) -> Ed25519PublicKey:
+def verify_certificate(
+    ca_pk: Ed25519PublicKey,
+    cert: Certificate,
+    *,
+    expected_subject: str = "server",
+    expected_issuer: str | None = "local_ca",
+) -> Ed25519PublicKey:
+    """
+    Verify CA signature and optional semantic fields (subject / issuer).
+
+    ``expected_issuer`` may be set to ``None`` to skip issuer checks. Use
+    ``EXPECTED_CERT_ISSUER`` on the client to match ``CA_NAME`` from ``ca_setup.py``.
+    """
+    if cert.subject != expected_subject:
+        raise ValueError(
+            f"certificate subject mismatch: expected {expected_subject!r}, got {cert.subject!r}"
+        )
+    if expected_issuer is not None and cert.issuer != expected_issuer:
+        raise ValueError(
+            f"certificate issuer mismatch: expected {expected_issuer!r}, got {cert.issuer!r}"
+        )
+
     tbs_fields = {"subject": cert.subject, "issuer": cert.issuer, "public_key": cert.public_key_b64}
     sig = b64d(cert.signature_b64)
     try:
